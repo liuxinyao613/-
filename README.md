@@ -84,9 +84,63 @@ npm run dev
 npm run lint
 npm run typecheck
 npm run test:domain
+npm run test:synthetic:unit
 npm run build
 npm test
 ```
+
+## Synthetic Test Harness（开发/内部工具）
+
+Harness 通过独立的 AI User Simulator 回答真实 Core-24 与 Adaptive Question Bank，再让产品侧 Interpreter、Planner、Report Writer 跑完整闭环。Simulator 只看到当前题、四个选项、Persona 的生活化设定和最近 3 条自己的回答，不会看到 Boundary State、Evidence、期待的 Flip/Hidden Cost 或 Evaluator 标签。
+
+- Persona Bank：24 个互不相同的 Persona，覆盖条件型、Hidden Cost、高 UNKNOWN、表面一致、真实矛盾、少写补充和中文口语等。
+- Smoke：固定 3 人；Standard：固定前 20 人；A/B：固定 5 个代表性 Persona；Stress 需要显式 `--confirm-stress`，不会意外启动。
+- 默认并发 2；每个 Session 完成后立即写 JSON，完整 trace、usage、latency、错误和异常与浏览器 `localStorage` 分离。
+- 软 token 警告为 100k/user，硬预算为 150k/user；达到硬预算后停止该 Session，不影响其他 Persona。
+- Deterministic Evaluator 在 Session 完成后才读取 Ground Truth，不参与 User Simulator 或产品 AI 的输入。
+
+配置时把产品侧和模拟器侧凭证分开：
+
+```dotenv
+PRODUCT_AI_BASE_URL=https://your-sol-compatible-host.example/v1
+PRODUCT_AI_API_KEY=
+PRODUCT_AI_MODEL=gpt-5.6-sol
+PRODUCT_AI_REASONING_EFFORT=xhigh
+
+SIMULATOR_AI_BASE_URL=https://api.deepseek.com/v1
+SIMULATOR_AI_API_KEY=
+SIMULATOR_AI_MODEL=deepseek-v4-flash
+SIMULATOR_AI_REASONING_EFFORT=
+SIMULATOR_AI_THINKING=disabled
+SIMULATOR_AI_STRUCTURED_OUTPUT=json_object
+SIMULATOR_AI_PROVIDER_NAME=deepseek-simulator-fixed
+
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_INTERPRETER_THINKING=enabled
+DEEPSEEK_INTERPRETER_REASONING_EFFORT=max
+DEEPSEEK_INTERPRETER_MAX_TOKENS=4096
+DEEPSEEK_PLANNER_THINKING=enabled
+DEEPSEEK_PLANNER_REASONING_EFFORT=max
+DEEPSEEK_PLANNER_MAX_TOKENS=8192
+DEEPSEEK_REPORT_THINKING=enabled
+DEEPSEEK_REPORT_REASONING_EFFORT=max
+DEEPSEEK_REPORT_MAX_TOKENS=16384
+```
+
+PowerShell 命令：
+
+```powershell
+npm run synthetic -- --list
+npm run synthetic -- --mode smoke --provider sol
+npm run synthetic -- --mode standard --provider sol --concurrency 2
+npm run synthetic -- --mode ab --concurrency 2
+```
+
+A/B 只切换 PRODUCT Provider，User Simulator 实例和配置不变。DeepSeek 使用它支持的 `thinking=enabled` 与 `reasoning_effort=max`；由于其接口返回 JSON Object，Provider 会先统一解析，再经与 Sol 相同的 Zod contract 验证，业务逻辑不感知 Provider。
+
+运行详情位于 `test-results/synthetic/runs/<run-id>/`（默认不提交 Git）；最新主测试摘要位于 `test-results/synthetic/SYNTHETIC_TEST_SUMMARY.md`。A/B 会生成 `SOL_VS_DEEPSEEK_AB_SUMMARY.md`、`HUMAN_BLIND_REVIEW.md`、每个 Persona 的 Report A/B，以及单独的 `provider-map.json`；评分前不要打开映射文件。
 
 生产构建后本地启动：
 
@@ -109,6 +163,7 @@ data/
   adaptive-question-bank.ts     # 44 道固定自适应题
   mock-probes.ts                # 仅用于兼容 Phase 1 已存 Session
   questions.ts                  # 题目索引与数据不变量
+  synthetic-personas.ts         # Synthetic Persona + Ground Truth Bank
 lib/
   ai/
     contracts.ts                # Interpreter / Planner / Report Zod contracts
@@ -128,8 +183,17 @@ lib/
   session/
     reducer.ts                  # 唯一 Session 状态合并入口
     storage.ts                  # localStorage v2 与 v1 迁移
+  synthetic/
+    simulator.ts                # 与产品 AI 隔离的虚拟用户
+    runner.ts                   # Core → Adaptive → Report 真实闭环
+    evaluator.ts                # 完成后运行的确定性指标与异常检测
+    persistence.ts              # JSON / JSONL / Markdown 持久化
+    ab.ts                       # Sol / DeepSeek 对比与盲评材料
+scripts/
+  run-synthetic.ts              # Smoke / Standard / A/B CLI
 tests/
   domain.test.ts                # schema、解释器不变量、自适应与完整闭环
+  synthetic.test.ts             # Persona 隔离、覆盖与无外部 AI 闭环
   rendered-html.test.mjs        # 构建产物路由烟雾测试
 ```
 

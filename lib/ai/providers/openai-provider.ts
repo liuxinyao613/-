@@ -61,13 +61,26 @@ export class OpenAIProvider implements AIProvider {
     let rawResponse: unknown;
     let telemetry: AITelemetry | undefined;
 
+    const roleOptions = this.config.roleOptions?.[input.role];
+    const reasoningEffort =
+      roleOptions && "reasoningEffort" in roleOptions
+        ? roleOptions.reasoningEffort ?? null
+        : this.config.reasoningEffort;
+    const thinking = roleOptions?.thinking ?? null;
+    const telemetryEffort = [
+      thinking ? `thinking:${thinking}` : null,
+      reasoningEffort ? `effort:${reasoningEffort}` : null,
+    ]
+      .filter(Boolean)
+      .join("/") || null;
+
     if (!this.config.apiKey || !this.config.model) {
       telemetry = makeTelemetry({
         sessionId: input.sessionId,
         role: input.role,
         provider: this.config.providerName,
         requestedModel: this.config.model,
-        reasoningEffort: this.config.reasoningEffort,
+        reasoningEffort: telemetryEffort,
         latencyMs: performance.now() - started,
         success: false,
         errorType: "CONFIGURATION",
@@ -86,20 +99,35 @@ export class OpenAIProvider implements AIProvider {
       const body: Record<string, unknown> = {
         model: this.config.model,
         messages: [
-          { role: "system", content: input.systemPrompt },
+          {
+            role: "system",
+            content:
+              this.config.structuredOutputMode === "json_object"
+                ? `${input.systemPrompt}\n只输出符合下列 JSON Schema 的合法 JSON 对象，不要输出 Markdown，不要省略 required 字段：\n${JSON.stringify(z.toJSONSchema(input.schema))}`
+                : input.systemPrompt,
+          },
           { role: "user", content: input.userPrompt },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: input.schemaName,
-            strict: true,
-            schema: z.toJSONSchema(input.schema),
-          },
-        },
+        response_format:
+          this.config.structuredOutputMode === "json_object"
+            ? { type: "json_object" }
+            : {
+                type: "json_schema",
+                json_schema: {
+                  name: input.schemaName,
+                  strict: true,
+                  schema: z.toJSONSchema(input.schema),
+                },
+              },
       };
-      if (this.config.reasoningEffort) {
-        body.reasoning_effort = this.config.reasoningEffort;
+      if (reasoningEffort) {
+        body.reasoning_effort = reasoningEffort;
+      }
+      if (thinking) {
+        body.thinking = { type: thinking };
+      }
+      if (roleOptions?.maxTokens) {
+        body.max_tokens = roleOptions.maxTokens;
       }
 
       const response = await fetch(endpointFor(this.config.baseUrl), {
@@ -132,7 +160,7 @@ export class OpenAIProvider implements AIProvider {
         provider: this.config.providerName,
         requestedModel: this.config.model,
         returnedModel: returnedModel(rawResponse),
-        reasoningEffort: this.config.reasoningEffort,
+        reasoningEffort: telemetryEffort,
         rawResponse,
         latencyMs: performance.now() - started,
         success: true,
@@ -155,7 +183,7 @@ export class OpenAIProvider implements AIProvider {
         provider: this.config.providerName,
         requestedModel: this.config.model,
         returnedModel: returnedModel(rawResponse),
-        reasoningEffort: this.config.reasoningEffort,
+        reasoningEffort: telemetryEffort,
         rawResponse,
         latencyMs: performance.now() - started,
         success: false,

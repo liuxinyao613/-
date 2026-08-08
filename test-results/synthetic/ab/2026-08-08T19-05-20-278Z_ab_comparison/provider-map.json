@@ -1,0 +1,14 @@
+{
+  "conditional-context": {
+    "A": "deepseek",
+    "B": "sol"
+  },
+  "hidden-cost-caregiver": {
+    "A": "sol",
+    "B": "deepseek"
+  },
+  "high-unknown": {
+    "A": "sol",
+    "B": "deepseek"
+  }
+}
