@@ -121,8 +121,8 @@ function primaryDifference(
 function errorCase(result: SyntheticSessionResult): string {
   const details = [
     ...result.errors.map((item) => `${item.stage}:${item.type}`),
-    ...result.evaluation.errorCases,
     ...result.anomalies,
+    ...result.evaluation.errorCases,
   ];
   return details.slice(0, 3).join("；") || "未发现自动异常";
 }
@@ -167,7 +167,8 @@ export function solVsDeepSeekMarkdown(input: {
     const deepseek = deepseekByPersona.get(id);
     return sol?.metrics.testCompleted && deepseek?.metrics.testCompleted;
   }).length;
-  const comparisonValid = pairedCompleted === personaIds.length && personaIds.length > 0;
+  const minimumValidPairs = Math.min(3, personaIds.length);
+  const comparisonValid = pairedCompleted >= minimumValidPairs && personaIds.length > 0;
   const expand =
     comparisonValid &&
     deepseekHealthy &&
@@ -176,12 +177,41 @@ export function solVsDeepSeekMarkdown(input: {
     summary.averages.interpreterLatencyMs +
     summary.averages.plannerLatencyMs +
     summary.averages.reportLatencyMs;
+  let commonSimulatorAnswers = 0;
+  let simulatorAnswerMismatches = 0;
+  for (const personaId of personaIds) {
+    const sol = solByPersona.get(personaId);
+    const deepseek = deepseekByPersona.get(personaId);
+    if (!sol || !deepseek) continue;
+    const solAnswers = new Map(
+      sol.trace
+        .filter((step) => step.kind === "ANSWER")
+        .map((step) => [
+          step.question.id,
+          `${step.simulatorAnswer.choice}\n${step.simulatorAnswer.note ?? ""}`,
+        ]),
+    );
+    deepseek.trace
+      .filter((step) => step.kind === "ANSWER")
+      .forEach((step) => {
+        const solAnswer = solAnswers.get(step.question.id);
+        if (solAnswer === undefined) return;
+        commonSimulatorAnswers += 1;
+        const deepseekAnswer = `${step.simulatorAnswer.choice}\n${step.simulatorAnswer.note ?? ""}`;
+        if (solAnswer !== deepseekAnswer) simulatorAnswerMismatches += 1;
+      });
+  }
 
   return `# Sol vs DeepSeek A/B Smoke Test
 
 本轮只切换 PRODUCT AI Provider。Synthetic Persona、Question Bank、Prompt ${input.solSummary.promptVersion}、Evaluator ${input.solSummary.evaluatorVersion} 与 User Simulator 配置保持一致。样本量仅 ${personaIds.length}，不以单一总分宣布胜负。
 
-> 有效性警告：${comparisonValid ? `${pairedCompleted}/${personaIds.length} 个配对 Session 都在硬预算内完成。` : `只有 ${pairedCompleted}/${personaIds.length} 个配对 Session 在硬预算内完成；以下指标含提前终止或 fallback 报告，只能用于定位问题，不能用于模型胜负判断。`}
+- 两侧目标总题数：Sol ${input.solSummary.targetTotal} / DeepSeek ${input.deepseekSummary.targetTotal}
+- Product Prompt：${input.solSummary.productPromptVersion}
+- Question Bank：${input.solSummary.questionBankVersion}
+- 共同问题的 Simulator 回答一致性：${commonSimulatorAnswers - simulatorAnswerMismatches}/${commonSimulatorAnswers}（${simulatorAnswerMismatches} 个不一致）
+
+> 有效性说明：${pairedCompleted}/${personaIds.length} 个配对 Session 在硬预算内完成。${comparisonValid ? `已达到预设的至少 ${minimumValidPairs} 个有效配对门槛；未完成样本仍按删失案例单独保留，不用总分掩盖。` : `未达到至少 ${minimumValidPairs} 个有效配对门槛；以下指标只能用于定位问题，不能用于模型胜负判断。`}
 
 - 已覆盖代表类型：${coveredLabels.join("、") || "无"}
 - 因 Smoke 稳定性前提失败而未扩大覆盖：${missingLabels.join("、") || "无"}
@@ -245,7 +275,7 @@ ${gaps.map((item) => `- ${evaluationLabels[item.key]}：差 ${percent(item.gap)}
 ## 是否扩大到 20 Persona
 
 ${expand
-  ? "建议进入下一轮 20 Persona，但仍需先完成 Report A / B 人工盲看；本结论只表示接口稳定性与多数自动指标具备继续测试价值。"
+  ? "值得在下一轮扩大到 20 Persona，但不建议今晚直接运行：先完成 Report A / B 人工盲看，并把 Sol 的两个 token/error 删失案例纳入预算修复。本结论只表示 DeepSeek 的接口稳定性、成本和多数自动指标具备继续测试价值。"
   : "暂不建议直接扩大。优先解决硬 token 预算下无法形成有效配对的问题，并检查 DeepSeek 的接口/schema 错误、差距最大的任务和 Report A / B 证据链，再决定是否重跑 5 人或进入 20 人。"}
 
 ## 人工判断说明
@@ -261,6 +291,29 @@ export async function persistAbArtifacts(input: {
   solResults: SyntheticSessionResult[];
   deepseekResults: SyntheticSessionResult[];
 }): Promise<{ summaryPath: string; reviewPath: string }> {
+  if (
+    input.solSummary.promptVersion !== input.deepseekSummary.promptVersion ||
+    input.solSummary.productPromptVersion !== input.deepseekSummary.productPromptVersion ||
+    input.solSummary.evaluatorVersion !== input.deepseekSummary.evaluatorVersion ||
+    input.solSummary.questionBankVersion !== input.deepseekSummary.questionBankVersion ||
+    input.solSummary.targetTotal !== input.deepseekSummary.targetTotal ||
+    input.solSummary.personaIds.join("\n") !== input.deepseekSummary.personaIds.join("\n")
+  ) {
+    throw new Error("A/B runs are not comparable: cohort or protocol versions differ.");
+  }
+  const solSimulatorConfigs = new Set(
+    input.solResults.map((item) => `${item.simulatorProvider}:${item.simulatorModel}`),
+  );
+  const deepseekSimulatorConfigs = new Set(
+    input.deepseekResults.map((item) => `${item.simulatorProvider}:${item.simulatorModel}`),
+  );
+  if (
+    solSimulatorConfigs.size !== 1 ||
+    deepseekSimulatorConfigs.size !== 1 ||
+    [...solSimulatorConfigs][0] !== [...deepseekSimulatorConfigs][0]
+  ) {
+    throw new Error("A/B runs are not comparable: User Simulator configs differ.");
+  }
   const root = path.join("ab", input.abRunId);
   const solByPersona = resultByPersona(input.solResults);
   const deepseekByPersona = resultByPersona(input.deepseekResults);

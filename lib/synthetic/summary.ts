@@ -4,6 +4,7 @@ import {
   SyntheticRunSummarySchema,
   SYNTHETIC_EVALUATOR_VERSION,
   SYNTHETIC_PROMPT_VERSION,
+  SYNTHETIC_QUESTION_BANK_VERSION,
   type SyntheticRunSummary,
   type SyntheticSessionResult,
 } from "./schemas";
@@ -59,6 +60,7 @@ export function buildSyntheticRunSummary(input: {
   startedAt: string;
   completedAt?: string;
   concurrency: number;
+  targetTotal: number;
 }): SyntheticRunSummary {
   const results = input.results;
   const questionCounts = results.map((item) => item.metrics.totalQuestions);
@@ -105,17 +107,31 @@ export function buildSyntheticRunSummary(input: {
     0,
   );
   const ranked = [...results].sort((left, right) => qualityScore(right) - qualityScore(left));
+  const simulatorPromptVersions = new Set(
+    results.map((item) => item.promptVersion),
+  );
+  const productPromptVersions = new Set(
+    results.map((item) => item.productPromptVersion),
+  );
+  if (simulatorPromptVersions.size > 1 || productPromptVersions.size > 1) {
+    throw new Error("Synthetic run mixed multiple prompt versions.");
+  }
 
   return SyntheticRunSummarySchema.parse({
     runId: input.runId,
     mode: input.mode,
     productTarget: input.productTarget,
-    promptVersion: SYNTHETIC_PROMPT_VERSION,
+    promptVersion:
+      [...simulatorPromptVersions][0] ?? SYNTHETIC_PROMPT_VERSION,
+    productPromptVersion:
+      [...productPromptVersions][0] ?? "phase2-ai-v1",
     evaluatorVersion: SYNTHETIC_EVALUATOR_VERSION,
+    questionBankVersion: SYNTHETIC_QUESTION_BANK_VERSION,
     personaIds: results.map((item) => item.persona.personaId),
     startedAt: input.startedAt,
     completedAt: input.completedAt ?? new Date().toISOString(),
     concurrency: input.concurrency,
+    targetTotal: input.targetTotal,
     completionRate: results.length
       ? results.filter((item) => item.metrics.testCompleted).length / results.length
       : 0,
@@ -199,14 +215,23 @@ export function syntheticSummaryMarkdown(
     "核对 Adaptive 题是否围绕 Planner 意图，而不是只偏向固定高频维度。",
     "逐条打开最终报告 Evidence，确认跨维度归纳没有越过原始回答。",
   ];
+  const dimensionRows = Object.values(BoundaryDimension)
+    .map(
+      (dimension) =>
+        `| ${dimension} | ${summary.averageDimensionQuestionCounts[dimension].toFixed(2)} |`,
+    )
+    .join("\n");
   return `# Synthetic Test Summary
 
 - Run ID：${summary.runId}
 - Mode：${summary.mode}
 - Product：${summary.productTarget}
-- Prompt：${summary.promptVersion}
+- User Simulator Prompt：${summary.promptVersion}
+- Product Prompt：${summary.productPromptVersion}
 - Evaluator：${summary.evaluatorVersion}
+- Question Bank：${summary.questionBankVersion}
 - 运行 Persona 数：${summary.personaIds.length}
+- 完成率：${percent(summary.completionRate)}
 - 成功完成：${summary.completed}
 - 失败：${summary.failed}
 - 平均题数：${summary.averages.totalQuestions.toFixed(1)}
@@ -215,9 +240,11 @@ export function syntheticSummaryMarkdown(
 - 最高 token：${Math.round(summary.percentiles.highestTokens)}
 - 平均模型调用：${summary.averages.totalAiCalls.toFixed(1)}
 - Boundary Flip Recall：${percent(summary.aggregateEvaluation.boundaryFlipRecall)}
+- False Flip Rate：${percent(summary.aggregateEvaluation.falseFlipRate)}
 - Hidden Cost Recall：${percent(summary.aggregateEvaluation.hiddenCostRecall)}
 - Condition Recall：${percent(summary.aggregateEvaluation.conditionRecall)}
 - Uncertainty Respect：${percent(summary.aggregateEvaluation.uncertaintyRespect)}
+- Contradiction Handling：${percent(summary.aggregateEvaluation.contradictionHandling)}
 - Overinterpretation Rate：${percent(summary.aggregateEvaluation.overinterpretationRate)}
 - Evidence Grounding：${percent(summary.aggregateEvaluation.evidenceGrounding)}
 - 达到题量软上限人数：${results.filter((item) => item.metrics.totalQuestions > 45).length}
@@ -251,11 +278,19 @@ ${summary.reviewSessionIds.map((item) => `- ${item}`).join("\n") || "- 无"}
 - Planner 平均 latency：${Math.round(summary.averages.plannerLatencyMs)} ms
 - Report 平均 latency：${Math.round(summary.averages.reportLatencyMs)} ms
 - Adaptive Relevance：${percent(summary.aggregateEvaluation.adaptiveRelevance)}
-- Repetition：${percent(summary.aggregateEvaluation.repetitionRate)}
+- 语义重复率：${percent(summary.aggregateEvaluation.repetitionRate)}
+- Extremity 4–5 比例：${percent(summary.averages.highExtremityRate)}
 - Extremity Drift：${percent(summary.aggregateEvaluation.extremityDrift)}
 - 最容易过度追问维度：${summary.mostOverprobedDimension ?? "无"}
 - 最容易 unresolved 维度：${summary.mostUnresolvedDimension ?? "无"}
 - 最常选 Adaptive Question：${summary.mostSelectedAdaptiveQuestion ?? "无"}
 - 从未选择题目数：${summary.neverSelectedQuestionIds.length}
+- 从未选择题目：${summary.neverSelectedQuestionIds.join("、") || "无"}
+
+## 每维平均题数
+
+| 维度 | 平均题数 |
+|---|---:|
+${dimensionRows}
 `;
 }

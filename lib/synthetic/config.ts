@@ -80,7 +80,10 @@ export function getProductProvider(target: ProductTarget): {
       reasoningEffort: null,
       providerName,
       structuredOutputMode: "json_object",
-      timeoutMs: 120_000,
+      timeoutMs: positiveInteger(
+        process.env.SYNTHETIC_PRODUCT_TIMEOUT_MS,
+        180_000,
+      ),
       roleOptions: {
         [AITelemetryRole.ANSWER_INTERPRETER]: {
           thinking:
@@ -116,7 +119,7 @@ export function getProductProvider(target: ProductTarget): {
             optional(process.env.DEEPSEEK_REPORT_REASONING_EFFORT) ?? "max",
           maxTokens: positiveInteger(
             process.env.DEEPSEEK_REPORT_MAX_TOKENS,
-            16_384,
+            24_576,
           ),
         },
       },
@@ -141,7 +144,10 @@ export function getProductProvider(target: ProductTarget): {
         ) ?? "xhigh",
       providerName,
       structuredOutputMode: "json_schema",
-      timeoutMs: 120_000,
+      timeoutMs: positiveInteger(
+        process.env.SYNTHETIC_PRODUCT_TIMEOUT_MS,
+        180_000,
+      ),
     }),
     providerName,
     model,

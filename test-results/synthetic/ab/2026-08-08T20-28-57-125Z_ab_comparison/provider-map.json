@@ -10,5 +10,13 @@
   "high-unknown": {
     "A": "sol",
     "B": "deepseek"
+  },
+  "colloquial-zh": {
+    "A": "deepseek",
+    "B": "sol"
+  },
+  "surface-consistent": {
+    "A": "deepseek",
+    "B": "sol"
   }
 }

@@ -34,3 +34,25 @@
 - 语言自然度：A __ / B __
 - 更可信的报告：A / B / 接近
 - 备注：
+
+## 中文口语表达者（colloquial-zh）
+
+- [ ] 已阅读 Report A
+- [ ] 已阅读 Report B
+- Condition / Flip 表达：A __ / B __
+- Hidden Cost 与不确定性：A __ / B __
+- 证据扎根：A __ / B __
+- 语言自然度：A __ / B __
+- 更可信的报告：A / B / 接近
+- 备注：
+
+## 区分授权与越权的人（surface-consistent）
+
+- [ ] 已阅读 Report A
+- [ ] 已阅读 Report B
+- Condition / Flip 表达：A __ / B __
+- Hidden Cost 与不确定性：A __ / B __
+- 证据扎根：A __ / B __
+- 语言自然度：A __ / B __
+- 更可信的报告：A / B / 接近
+- 备注：

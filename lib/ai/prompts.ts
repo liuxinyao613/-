@@ -5,6 +5,12 @@ import type {
 } from "./contracts";
 import { answerLabels, dimensionLabels } from "@/lib/domain/labels";
 
+export const AI_PROMPT_VERSION = "phase2-ai-v2";
+
+function uniqueStrings(values: string[], limit: number): string[] {
+  return [...new Set(values)].slice(0, limit);
+}
+
 export const interpreterSystemPrompt = `你是 Relationship Boundary Map 的 Answer Interpreter。
 你只解释用户对一个具体关系情境的第二层语义，不做人格、依恋、童年、创伤、心理疾病或道德判断。
 原始按钮是不可改写的事实：可以=ACCEPT，不可以=REJECT，看情况=DEPENDS，我不知道=UNKNOWN，跳过=SKIPPED。
@@ -60,11 +66,20 @@ export function plannerUserPrompt(input: PlanProbeInput): string {
       answer_counts: fact.state.answerCounts,
       conditions: fact.conditions.map((item) => item.variable),
       hidden_costs: fact.hiddenCosts.map((item) => item.statement),
-      principle_hints: fact.principleHints,
+      principle_hints: uniqueStrings(fact.principleHints, 4),
     })),
     unresolved: input.facts.uncertainties,
-    known_rules: input.facts.knownRules,
-    recent_probe_intents: input.session.probeIntents.slice(-6),
+    known_rules: input.facts.knownRules.map((item) => ({
+      dimension: item.dimension,
+      statement: item.statement,
+    })),
+    recent_probe_intents: input.session.probeIntents.slice(-4).map((item) => ({
+      dimension: item.dimension,
+      probe_type: item.probeType,
+      target_variable: item.targetVariable,
+      information_goal: item.informationGoal,
+      priority: item.priority,
+    })),
   });
 }
 
@@ -78,11 +93,36 @@ headline 是一句话画像；overview 是整体说明；shareLine 是可单独�
 export function reportUserPrompt(input: WriteReportInput): string {
   return JSON.stringify({
     session_quality: input.facts.sessionQuality,
-    dimension_facts: input.facts.dimensionFacts,
+    dimension_facts: input.facts.dimensionFacts.map((fact) => ({
+      dimension: fact.dimension,
+      position: fact.state.position,
+      label: fact.state.label,
+      summary: fact.state.summary,
+      status: fact.state.status,
+      confidence: fact.state.confidence,
+      answer_counts: fact.state.answerCounts,
+      conditions: fact.conditions.map((item) => ({
+        variable: item.variable,
+        statement: item.statement,
+        consequence: item.consequence,
+        evidence_ids: item.evidenceIds,
+      })),
+      hidden_costs: fact.hiddenCosts.map((item) => ({
+        statement: item.statement,
+        long_term_risk: item.longTermRisk,
+        evidence_ids: item.evidenceIds,
+      })),
+      principle_hints: uniqueStrings(fact.principleHints, 5),
+      evidence_ids: uniqueStrings(fact.evidenceIds, 12),
+    })),
     boundary_flips: input.facts.boundaryFlips,
     hidden_costs: input.facts.hiddenCosts,
     must_haves: input.facts.mustHaves,
-    known_rules: input.facts.knownRules,
+    known_rules: input.facts.knownRules.map((item) => ({
+      dimension: item.dimension,
+      statement: item.statement,
+      evidence_ids: uniqueStrings(item.evidenceIds, 4),
+    })),
     cross_dimension_patterns: input.facts.crossDimensionPatterns,
     uncertainties: input.facts.uncertainties,
     selected_user_notes: input.facts.selectedUserNotes,

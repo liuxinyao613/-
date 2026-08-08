@@ -5,6 +5,7 @@ import {
   shouldStopAdaptive,
 } from "@/lib/adaptive/flow";
 import { ProviderCallError, type AIProvider } from "@/lib/ai/provider";
+import { AI_PROMPT_VERSION } from "@/lib/ai/prompts";
 import { shouldInterpretResponse } from "@/lib/ai/interpretation-policy";
 import {
   AITelemetryRole,
@@ -40,6 +41,7 @@ import {
   SyntheticSessionResultSchema,
   SYNTHETIC_EVALUATOR_VERSION,
   SYNTHETIC_PROMPT_VERSION,
+  SYNTHETIC_QUESTION_BANK_VERSION,
   type SimulatorAnswer,
   type SyntheticCallTelemetry,
   type SyntheticPersona,
@@ -228,6 +230,7 @@ export async function runSyntheticSession(input: {
     providerName: string;
     model: string;
   };
+  targetTotal?: number;
   onProgress?: (message: string) => void;
 }): Promise<SyntheticSessionResult> {
   const startedAt = new Date().toISOString();
@@ -237,6 +240,15 @@ export async function runSyntheticSession(input: {
   const trace: TraceStep[] = [];
   const simulatorHistory: SimulatorHistoryItem[] = [];
   let session = createSession();
+  if (input.targetTotal) {
+    session = {
+      ...session,
+      adaptiveConfig: {
+        ...session.adaptiveConfig,
+        targetTotal: input.targetTotal,
+      },
+    };
+  }
   let plannerFallbackCount = 0;
   let stopReason: SyntheticSessionMetrics["stopReason"] = "RUNNER_ERROR";
   let runnerFailed = false;
@@ -378,6 +390,22 @@ export async function runSyntheticSession(input: {
         continue;
       }
 
+      const answeredBeforePlanning = latestResponses(session.rawResponses).size;
+      if (
+        answeredBeforePlanning >= session.adaptiveConfig.targetTotal ||
+        answeredBeforePlanning >= session.adaptiveConfig.hardLimit
+      ) {
+        stopReason =
+          answeredBeforePlanning >= session.adaptiveConfig.hardLimit
+            ? "HARD_QUESTION_LIMIT"
+            : "TARGET_REACHED";
+        session = sessionReducer(session, {
+          type: "COMPLETE_SESSION",
+          at: new Date().toISOString(),
+        });
+        continue;
+      }
+
       const facts = buildReportFacts(session);
       let plan = fallbackProbePlan(session, facts);
       let usedFallback = false;
@@ -411,6 +439,15 @@ export async function runSyntheticSession(input: {
         selected = selectAdaptiveQuestions(session, plan.intents);
       }
 
+      const remainingQuestionSlots = Math.max(
+        0,
+        Math.min(
+          session.adaptiveConfig.targetTotal,
+          session.adaptiveConfig.hardLimit,
+        ) - answeredBeforePlanning,
+      );
+      selected = selected.slice(0, remainingQuestionSlots);
+
       trace.push({
         kind: "PLAN",
         afterQuestionCount: latestResponses(session.rawResponses).size,
@@ -422,7 +459,7 @@ export async function runSyntheticSession(input: {
         plannerTelemetryId,
       });
 
-      const answeredTotal = latestResponses(session.rawResponses).size;
+      const answeredTotal = answeredBeforePlanning;
       if (shouldStopAdaptive(session, plan.stop, selected.length) || !selected.length) {
         stopReason =
           answeredTotal >= session.adaptiveConfig.hardLimit
@@ -530,7 +567,9 @@ export async function runSyntheticSession(input: {
     simulatorProvider: input.simulator.config.providerName,
     simulatorModel: input.simulator.config.model || "not-configured",
     promptVersion: SYNTHETIC_PROMPT_VERSION,
+    productPromptVersion: AI_PROMPT_VERSION,
     evaluatorVersion: SYNTHETIC_EVALUATOR_VERSION,
+    questionBankVersion: SYNTHETIC_QUESTION_BANK_VERSION,
     persona: input.persona,
     trace,
     telemetry,

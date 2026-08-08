@@ -7,9 +7,12 @@ import {
   syntheticPersonas,
 } from "@/data/synthetic-personas";
 import { MockProvider } from "@/lib/ai/providers/mock-provider";
+import { coreQuestions } from "@/data/core-24";
 import { runSyntheticSession } from "@/lib/synthetic/runner";
 import {
+  buildCurrentPersonaGuidance,
   buildSimulatorPersonaView,
+  ReplayableSyntheticUserSimulator,
   type SyntheticUserSimulator,
 } from "@/lib/synthetic/simulator";
 import type { SimulatorAnswer } from "@/lib/synthetic/schemas";
@@ -68,8 +71,11 @@ test("smoke and A/B cohorts are fixed, representative, and valid", () => {
 });
 
 test("simulator view excludes product ground-truth labels and evaluator fields", () => {
-  const view = buildSimulatorPersonaView(syntheticPersonaById.get("conditional-context")!);
-  const serialized = JSON.stringify(view);
+  const persona = syntheticPersonaById.get("conditional-context")!;
+  const serialized = JSON.stringify({
+    persona: buildSimulatorPersonaView(persona),
+    current: buildCurrentPersonaGuidance(persona, coreQuestions[0]),
+  });
   for (const forbidden of [
     "personaId",
     "archetypes",
@@ -82,6 +88,55 @@ test("simulator view excludes product ground-truth labels and evaluator fields",
   ]) {
     assert.equal(serialized.includes(forbidden), false, `simulator leaked ${forbidden}`);
   }
+});
+
+test("current guidance limits edge behavior to related dimensions", () => {
+  const persona = syntheticPersonaById.get("conditional-context")!;
+  const conditionalQuestions = coreQuestions.filter((question) =>
+    buildCurrentPersonaGuidance(persona, question).establishedRules.some((item) =>
+      item.responseTendency.includes("看情况"),
+    ),
+  );
+  assert.ok(conditionalQuestions.length >= 6);
+  assert.ok(conditionalQuestions.length <= 10);
+  assert.ok(conditionalQuestions.length < coreQuestions.length / 2);
+  const unrelated = coreQuestions.find(
+    (question) =>
+      buildCurrentPersonaGuidance(persona, question).establishedRules.length === 0,
+  );
+  assert.ok(unrelated);
+  assert.match(
+    buildCurrentPersonaGuidance(persona, unrelated).defaultWhenUnspecified,
+    /通常选择“可以”/,
+  );
+});
+
+test("replayable simulator returns the same answer and normalized usage for A/B", async () => {
+  let calls = 0;
+  const delegate: SyntheticUserSimulator = {
+    ...deterministicSimulator,
+    async answer(input) {
+      calls += 1;
+      return deterministicSimulator.answer(input);
+    },
+  };
+  const simulator = new ReplayableSyntheticUserSimulator(delegate);
+  const persona = syntheticPersonaById.get("conditional-context")!;
+  const first = await simulator.answer({
+    persona,
+    question: coreQuestions[0],
+    history: [],
+  });
+  const second = await simulator.answer({
+    persona,
+    question: coreQuestions[0],
+    history: [{ question: "不同路径", choice: "REJECT", note: null }],
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(second.answer, first.answer);
+  assert.equal(second.telemetry.totalTokens, first.telemetry.totalTokens);
+  assert.equal(second.telemetry.latencyMs, first.telemetry.latencyMs);
+  assert.notEqual(second.telemetry.id, first.telemetry.id);
 });
 
 const deterministicSimulator: SyntheticUserSimulator = {
@@ -139,10 +194,11 @@ test("runner completes a full Core + Adaptive session without external AI", asyn
       providerName: "mock-product",
       model: "mock",
     },
+    targetTotal: 32,
   });
   assert.equal(result.metrics.coreQuestions, 24);
   assert.ok(result.metrics.adaptiveQuestions >= 8);
-  assert.ok(result.metrics.totalQuestions <= 50);
+  assert.equal(result.metrics.totalQuestions, 32);
   assert.equal(result.metrics.testCompleted, true);
   assert.equal(result.session.structuredReport?.reportVersion, 2);
   assert.equal(

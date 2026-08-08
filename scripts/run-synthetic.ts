@@ -22,7 +22,10 @@ import type {
   SyntheticRunSummary,
   SyntheticSessionResult,
 } from "@/lib/synthetic/schemas";
-import { AIUserSimulator } from "@/lib/synthetic/simulator";
+import {
+  AIUserSimulator,
+  ReplayableSyntheticUserSimulator,
+} from "@/lib/synthetic/simulator";
 import {
   buildSyntheticRunSummary,
   syntheticSummaryMarkdown,
@@ -37,6 +40,7 @@ type CliOptions = {
   personaId?: string;
   confirmStress: boolean;
   list: boolean;
+  targetTotal: number;
 };
 
 function loadLocalEnvironment(): void {
@@ -56,6 +60,9 @@ function parseOptions(argv: string[]): CliOptions {
   const mode = (valueAfter("--mode") ?? "smoke") as Mode;
   const provider = (valueAfter("--provider") ?? "sol") as ProductTarget;
   const concurrency = Number(valueAfter("--concurrency") ?? SYNTHETIC_DEFAULT_CONCURRENCY);
+  const targetTotal = Number(
+    valueAfter("--target-total") ?? (mode === "smoke" || mode === "ab" ? 32 : 38),
+  );
   if (!["smoke", "standard", "stress", "ab"].includes(mode)) {
     throw new Error(`Unsupported --mode ${mode}.`);
   }
@@ -65,6 +72,9 @@ function parseOptions(argv: string[]): CliOptions {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) {
     throw new Error("--concurrency must be an integer between 1 and 8.");
   }
+  if (!Number.isInteger(targetTotal) || targetTotal < 32 || targetTotal > 50) {
+    throw new Error("--target-total must be an integer between 32 and 50.");
+  }
   return {
     mode,
     provider,
@@ -72,6 +82,7 @@ function parseOptions(argv: string[]): CliOptions {
     personaId: valueAfter("--persona"),
     confirmStress: argv.includes("--confirm-stress"),
     list: argv.includes("--list"),
+    targetTotal,
   };
 }
 
@@ -122,6 +133,7 @@ async function runTarget(input: {
   personas: SyntheticPersona[];
   simulator: AIUserSimulator;
   concurrency: number;
+  targetTotal: number;
   runId?: string;
 }): Promise<{
   runId: string;
@@ -132,7 +144,7 @@ async function runTarget(input: {
   const runDirectory = await createSyntheticRunDirectory(runId);
   const startedAt = new Date().toISOString();
   console.log(
-    `[synthetic] ${runId}: ${input.personas.length} personas, product=${input.target}, concurrency=${input.concurrency}`,
+    `[synthetic] ${runId}: ${input.personas.length} personas, product=${input.target}, target=${input.targetTotal}, concurrency=${input.concurrency}`,
   );
   const results = await runWithConcurrency(
     input.personas,
@@ -146,6 +158,7 @@ async function runTarget(input: {
         persona,
         productTarget: input.target,
         simulator: input.simulator,
+        targetTotal: input.targetTotal,
         onProgress(message) {
           const match = message.match(/question (\d+)$/);
           const questionNumber = Number(match?.[1] ?? 0);
@@ -168,6 +181,7 @@ async function runTarget(input: {
     results,
     startedAt,
     concurrency: input.concurrency,
+    targetTotal: input.targetTotal,
   });
   const markdown = syntheticSummaryMarkdown(summary, results);
   await persistSyntheticRun({
@@ -193,7 +207,7 @@ async function main(): Promise<void> {
     return;
   }
   const personas = personasFor(options);
-  const simulator = new AIUserSimulator();
+  const simulator = new ReplayableSyntheticUserSimulator(new AIUserSimulator());
 
   if (options.mode !== "ab") {
     await runTarget({
@@ -202,6 +216,7 @@ async function main(): Promise<void> {
       personas,
       simulator,
       concurrency: options.concurrency,
+      targetTotal: options.targetTotal,
     });
     return;
   }
@@ -213,6 +228,7 @@ async function main(): Promise<void> {
     personas,
     simulator,
     concurrency: options.concurrency,
+    targetTotal: options.targetTotal,
     runId: `${abRunId}_sol`,
   });
 
@@ -226,6 +242,7 @@ async function main(): Promise<void> {
       personas,
       simulator,
       concurrency: options.concurrency,
+      targetTotal: options.targetTotal,
       runId: `${abRunId}_deepseek`,
     });
   } catch (error) {

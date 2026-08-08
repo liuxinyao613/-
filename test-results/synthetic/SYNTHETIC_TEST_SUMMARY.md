@@ -1,37 +1,44 @@
 # Synthetic Test Summary
 
-- Run ID：2026-08-08T17-59-12-086Z_smoke_sol
-- Mode：smoke
+- Run ID：2026-08-08T20-41-07-820Z_standard_sol
+- Mode：standard
 - Product：sol
-- Prompt：synthetic-user-v1
+- User Simulator Prompt：synthetic-user-v2
+- Product Prompt：phase2-ai-v2
 - Evaluator：deterministic-evaluator-v1
-- 运行 Persona 数：3
-- 成功完成：0
-- 失败：3
-- 平均题数：25.7
-- 平均 Adaptive 题数：1.7
-- 平均 token / user：152407
-- 最高 token：154106
-- 平均模型调用：48.7
-- Boundary Flip Recall：33.3%
-- Hidden Cost Recall：66.7%
-- Condition Recall：88.9%
+- Question Bank：core24-adaptive44-v1
+- 运行 Persona 数：20
+- 完成率：95.0%
+- 成功完成：19
+- 失败：1
+- 平均题数：32.0
+- 平均 Adaptive 题数：8.0
+- 平均 token / user：97398
+- 最高 token：150454
+- 平均模型调用：43.1
+- Boundary Flip Recall：50.0%
+- False Flip Rate：12.8%
+- Hidden Cost Recall：60.0%
+- Condition Recall：63.3%
 - Uncertainty Respect：100.0%
+- Contradiction Handling：65.0%
 - Overinterpretation Rate：0.0%
 - Evidence Grounding：100.0%
 - 达到题量软上限人数：0
 - 达到题量硬上限人数：0
-- 超过 token soft warning 人数：3
-- 达到 token hard budget 人数：3
-- Planner fallback：0
-- Schema / API error rate：0.7%
+- 超过 token soft warning 人数：6
+- 达到 token hard budget 人数：1
+- Planner fallback：3
+- Schema / API error rate：0.3%
 
 ## 主要问题
 
-- TOKEN_BUDGET_EXCEEDED：3
-- TOKEN_SOFT_WARNING：3
-- EXPECTED_FLIP_MISSED：2
-- SIMULATOR_FALLBACK_USED：1
+- EXPECTED_FLIP_MISSED：10
+- TOKEN_SOFT_WARNING：6
+- GROUND_TRUTH_REPORT_CONTRADICTION：2
+- SIMULATOR_FALLBACK_USED：2
+- TOKEN_BUDGET_EXCEEDED：1
+- UNKNOWN_OVERPROBED：1
 
 ## 真人测试最值得关注的 5 个问题
 
@@ -43,27 +50,45 @@
 
 ## 表现最好的 Synthetic Session
 
+- minimalist
 - high-unknown
-- conditional-context
-- hidden-cost-caregiver
+- commitment-flexible
 
 ## 最需要人工检查的 Synthetic Session
 
+- intimacy-space
 - hidden-cost-caregiver
-- conditional-context
-- high-unknown
+- surface-consistent
 
 ## 补充统计
 
-- 题数 P50 / P90：26 / 27
-- Token P50 / P90：153006 / 154106
-- Interpreter 平均 latency：15693 ms
-- Planner 平均 latency：41805 ms
-- Report 平均 latency：0 ms
-- Adaptive Relevance：66.7%
-- Repetition：0.0%
+- 题数 P50 / P90：32 / 32
+- Token P50 / P90：84228 / 137711
+- Interpreter 平均 latency：13997 ms
+- Planner 平均 latency：28750 ms
+- Report 平均 latency：106949 ms
+- Adaptive Relevance：100.0%
+- 语义重复率：0.0%
+- Extremity 4–5 比例：0.0%
 - Extremity Drift：0.0%
 - 最容易过度追问维度：PRIVACY_PERSONAL_SPACE
 - 最容易 unresolved 维度：SACRIFICE_SHARED_BURDEN
-- 最常选 Adaptive Question：bank-repair-01
-- 从未选择题目数：38
+- 最常选 Adaptive Question：bank-privacy-01
+- 从未选择题目数：0
+- 从未选择题目：无
+
+## 每维平均题数
+
+| 维度 | 平均题数 |
+|---|---:|
+| AUTONOMY_CONTROL | 2.95 |
+| HONESTY_AUTHENTICITY | 2.55 |
+| PRIVACY_PERSONAL_SPACE | 4.30 |
+| LOYALTY_EXCLUSIVITY | 2.40 |
+| RELATIONSHIP_PRIORITY | 2.75 |
+| SACRIFICE_SHARED_BURDEN | 3.00 |
+| CONFLICT_DIGNITY | 3.65 |
+| RESPONSIBILITY_FAIRNESS | 2.55 |
+| FORGIVENESS_REPAIR_TRUST | 3.05 |
+| COMMITMENT_FUTURE_STRUCTURE | 2.45 |
+| EMOTIONAL_INTIMACY_NEEDS | 2.35 |

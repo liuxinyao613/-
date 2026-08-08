@@ -12,8 +12,9 @@ import {
 } from "@/lib/domain/schemas";
 import { InterpretAnswerOutputSchema } from "@/lib/ai/contracts";
 
-export const SYNTHETIC_PROMPT_VERSION = "synthetic-user-v1";
+export const SYNTHETIC_PROMPT_VERSION = "synthetic-user-v2";
 export const SYNTHETIC_EVALUATOR_VERSION = "deterministic-evaluator-v1";
+export const SYNTHETIC_QUESTION_BANK_VERSION = "core24-adaptive44-v1";
 
 export const PersonaArchetypeSchema = z.enum([
   "CLEAR_RULES",
@@ -220,8 +221,12 @@ export const SyntheticSessionResultSchema = z.object({
   productModel: z.string().min(1),
   simulatorProvider: z.string().min(1),
   simulatorModel: z.string().min(1),
-  promptVersion: z.literal(SYNTHETIC_PROMPT_VERSION),
+  promptVersion: z.enum(["synthetic-user-v1", "synthetic-user-v2"]),
+  productPromptVersion: z.string().min(1).default("phase2-ai-v1"),
   evaluatorVersion: z.literal(SYNTHETIC_EVALUATOR_VERSION),
+  questionBankVersion: z
+    .literal(SYNTHETIC_QUESTION_BANK_VERSION)
+    .default(SYNTHETIC_QUESTION_BANK_VERSION),
   persona: SyntheticPersonaSchema,
   trace: z.array(SyntheticTraceStepSchema),
   telemetry: z.array(SyntheticCallTelemetrySchema),
@@ -242,12 +247,17 @@ export const SyntheticRunSummarySchema = z.object({
   runId: z.string().min(1),
   mode: z.enum(["smoke", "standard", "stress", "ab"]),
   productTarget: z.enum(["sol", "deepseek", "comparison"]),
-  promptVersion: z.literal(SYNTHETIC_PROMPT_VERSION),
+  promptVersion: z.enum(["synthetic-user-v1", "synthetic-user-v2"]),
+  productPromptVersion: z.string().min(1).default("phase2-ai-v1"),
   evaluatorVersion: z.literal(SYNTHETIC_EVALUATOR_VERSION),
+  questionBankVersion: z
+    .literal(SYNTHETIC_QUESTION_BANK_VERSION)
+    .default(SYNTHETIC_QUESTION_BANK_VERSION),
   personaIds: z.array(z.string()),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime(),
   concurrency: z.number().int().positive(),
+  targetTotal: z.number().int().min(24).max(50).default(38),
   completionRate: z.number().min(0).max(1),
   completed: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),

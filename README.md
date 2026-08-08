@@ -91,7 +91,7 @@ npm test
 
 ## Synthetic Test Harness（开发/内部工具）
 
-Harness 通过独立的 AI User Simulator 回答真实 Core-24 与 Adaptive Question Bank，再让产品侧 Interpreter、Planner、Report Writer 跑完整闭环。Simulator 只看到当前题、四个选项、Persona 的生活化设定和最近 3 条自己的回答，不会看到 Boundary State、Evidence、期待的 Flip/Hidden Cost 或 Evaluator 标签。
+Harness 通过独立的 AI User Simulator 回答真实 Core-24 与 Adaptive Question Bank，再让产品侧 Interpreter、Planner、Report Writer 跑完整闭环。Simulator 只看到当前题、四个选项、Persona 针对当前情境的生活化设定和最近 2 条回答摘要，不会看到 Boundary State、Evidence、期待的 Flip/Hidden Cost 或 Evaluator 标签。
 
 - Persona Bank：24 个互不相同的 Persona，覆盖条件型、Hidden Cost、高 UNKNOWN、表面一致、真实矛盾、少写补充和中文口语等。
 - Smoke：固定 3 人；Standard：固定前 20 人；A/B：固定 5 个代表性 Persona；Stress 需要显式 `--confirm-stress`，不会意外启动。
@@ -114,6 +114,7 @@ SIMULATOR_AI_REASONING_EFFORT=
 SIMULATOR_AI_THINKING=disabled
 SIMULATOR_AI_STRUCTURED_OUTPUT=json_object
 SIMULATOR_AI_PROVIDER_NAME=deepseek-simulator-fixed
+SYNTHETIC_PRODUCT_TIMEOUT_MS=180000
 
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 DEEPSEEK_API_KEY=
@@ -126,7 +127,7 @@ DEEPSEEK_PLANNER_REASONING_EFFORT=max
 DEEPSEEK_PLANNER_MAX_TOKENS=8192
 DEEPSEEK_REPORT_THINKING=enabled
 DEEPSEEK_REPORT_REASONING_EFFORT=max
-DEEPSEEK_REPORT_MAX_TOKENS=16384
+DEEPSEEK_REPORT_MAX_TOKENS=24576
 ```
 
 PowerShell 命令：
@@ -137,6 +138,8 @@ npm run synthetic -- --mode smoke --provider sol
 npm run synthetic -- --mode standard --provider sol --concurrency 2
 npm run synthetic -- --mode ab --concurrency 2
 ```
+
+Smoke 与 A/B 默认目标总题数为 32（Core-24 + 至少 8 道 Adaptive），Standard 默认使用产品配置的 38；可用 `--target-total 32..50` 显式覆盖。两侧 A/B 必须使用同一个值。
 
 A/B 只切换 PRODUCT Provider，User Simulator 实例和配置不变。DeepSeek 使用它支持的 `thinking=enabled` 与 `reasoning_effort=max`；由于其接口返回 JSON Object，Provider 会先统一解析，再经与 Sol 相同的 Zod contract 验证，业务逻辑不感知 Provider。
 
