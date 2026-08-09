@@ -10,11 +10,8 @@ import {
   shouldStopAdaptive,
 } from "@/lib/adaptive/flow";
 import { AIClientError, postAI } from "@/lib/ai/client";
-import {
-  InterpretAnswerOutputSchema,
-  PlanProbeOutputSchema,
-} from "@/lib/ai/contracts";
-import { shouldInterpretResponse } from "@/lib/ai/interpretation-policy";
+import { PlanProbeOutputSchema } from "@/lib/ai/contracts";
+import { useBackgroundAnswerAnalysis } from "@/lib/ai/use-background-answer-analysis";
 import {
   answerLabels,
   answerPlaceholders,
@@ -128,13 +125,30 @@ export function AssessmentExperience() {
   } = useBoundarySession();
   const [processingLabel, setProcessingLabel] = useState<string | null>(null);
   const flowInFlight = useRef(false);
+  const advancingQuestion = useRef<string | null>(null);
+  const {
+    enqueue: enqueueBackgroundAnalysis,
+    drain: drainBackgroundAnalysis,
+    pendingCount: pendingAnalysisCount,
+  } = useBackgroundAnswerAnalysis({
+    session,
+    hydrated,
+    getCurrent,
+    addTelemetry,
+    acceptInterpretation,
+  });
+
+  useEffect(() => {
+    advancingQuestion.current = null;
+  }, [session?.currentIndex]);
 
   const runPlanner = useCallback(
     async (baseSession: Session) => {
       if (flowInFlight.current) return;
       flowInFlight.current = true;
-      setProcessingLabel("正在决定下一步最值得澄清的边界…");
+      setProcessingLabel("正在汇总各维度分析，准备下一组情境…");
       try {
+        await drainBackgroundAnalysis();
         let current = getCurrent() ?? baseSession;
         const currentFacts = buildReportFacts(current);
         let plan;
@@ -171,7 +185,7 @@ export function AssessmentExperience() {
         setProcessingLabel(null);
       }
     },
-    [addTelemetry, appendProbes, complete, getCurrent, router],
+    [addTelemetry, appendProbes, complete, drainBackgroundAnalysis, getCurrent, router],
   );
 
   const continueFlow = useCallback(
@@ -225,45 +239,29 @@ export function AssessmentExperience() {
   const stageDetail = isCore ? "固定核心题" : "AI 规划意图 · 程序从固定题库选题";
   const expectedTotal = session.adaptiveConfig.targetTotal;
 
-  const advance = async (answer: AnswerChoice, note: string) => {
-    setProcessingLabel("回答已保存，正在整理其中的第二层语义…");
-    const recorded = record(question, answer, note);
-    let current = recorded.session;
-
-    if (shouldInterpretResponse(recorded.response)) {
-      const relatedEvidence = current.evidence
-        .filter(
-          (item) =>
-            item.dimension === question.dimension &&
-            item.rawResponseId !== recorded.response.id,
-        )
-        .slice(-8);
-      const knownRules = buildReportFacts(current).knownRules
-        .filter((item) => item.dimension === question.dimension)
-        .slice(0, 6);
-      try {
-        const result = await postAI(
-          "/api/ai/interpret",
-          { question, response: recorded.response, relatedEvidence, knownRules },
-          InterpretAnswerOutputSchema,
-        );
-        addTelemetry(result.telemetry);
-        current = acceptInterpretation(result.data);
-      } catch (error) {
-        if (error instanceof AIClientError && error.telemetry) addTelemetry(error.telemetry);
-        current = getCurrent() ?? current;
-      }
+  const advance = (answer: AnswerChoice, note: string) => {
+    if (advancingQuestion.current === question.id) return;
+    advancingQuestion.current = question.id;
+    try {
+      const recorded = record(question, answer, note);
+      enqueueBackgroundAnalysis(question, recorded.response);
+      void continueFlow(recorded.session);
+    } catch (error) {
+      advancingQuestion.current = null;
+      throw error;
     }
-
-    setProcessingLabel(null);
-    await continueFlow(current);
   };
 
   return (
     <main className="assessment-page">
       <header className="assessment-header">
         <Brand compact />
-        <div className="save-state"><span aria-hidden="true" />原始回答已保存到本机</div>
+        <div aria-live="polite" className="save-state" data-analyzing={pendingAnalysisCount > 0}>
+          <span aria-hidden="true" />
+          {pendingAnalysisCount > 0
+            ? `原始回答已保存 · AI 后台整理 ${pendingAnalysisCount} 条`
+            : "原始回答已保存到本机"}
+        </div>
       </header>
 
       <section className="progress-shell" aria-label="测试进度">
@@ -285,8 +283,8 @@ export function AssessmentExperience() {
         isFirst={session.currentIndex === 0}
         key={`${question.id}-${latest?.id ?? "new"}`}
         onBack={() => moveTo(session.currentIndex - 1)}
-        onSkip={() => void advance(AnswerChoice.SKIPPED, "")}
-        onSubmit={(answer, note) => void advance(answer, note)}
+        onSkip={() => advance(AnswerChoice.SKIPPED, "")}
+        onSubmit={advance}
         question={question}
       />
 

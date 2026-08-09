@@ -9,11 +9,13 @@
 ```text
 用户按钮选择 + 补充短句
   → RawResponse 先追加保存
-  → 服务端 Answer Interpreter（按策略调用）
-  → Zod 校验 + normalize
-  → 纯 sessionReducer 合并 Evidence / Condition / Hidden Cost / Flip
+  → 立即进入下一题，不等待 AI
+  → 后台按维度排队：同维度有序、跨维度最多 4 路并行
+  → Answer Interpreter（medium）→ Zod 校验 + normalize
+  → 纯 sessionReducer 异步合并 Evidence / Condition / Hidden Cost / Flip
   → Core-24 完成
-  → 服务端 Probe Planner 返回最多 3 个 ProbeIntent
+  → 等待当前维度队列收敛
+  → Probe Planner（xhigh）作为总汇总器返回最多 3 个 ProbeIntent
   → 程序应用 cooldown / 去重 / extremity 限制 / 评分
   → 从 44 题固定 Adaptive Question Bank 选题
   → 程序生成 ReportFacts
@@ -23,12 +25,15 @@
 
 原始回答永远先写入 `localStorage`，模型没有修改应用状态的入口。模型失败时，RawResponse 和原文仍然保留。
 
+后台解释任务不会阻塞单题交互。刷新页面后，客户端会扫描最新 RawResponse，自动补跑需要解释但尚未产生 AI Evidence 的回答；旧版本 RawResponse 仍保持追加式历史。总汇总只发生在需要规划下一批 Adaptive 问题的批次边界，不会在每题之间打断用户。
+
 ## 已实现
 
 - Phase 1 的教学页、单题沉浸交互、四个中性答案、动态 placeholder、跳过、进度、PWA 与追加式 RawResponse 历史
 - 11 个核心维度与完整 Phase 2 Zod 数据模型
 - OpenAI-compatible 服务端 Provider；`OpenAIProvider`、`DeepSeekProvider`、`MockProvider` 共用同一接口
 - 按需 Answer Interpreter：有补充短句、`DEPENDS` 或 `UNKNOWN` 时调用；纯 `ACCEPT / REJECT` 且无短句时只建基础 Evidence
+- 按维度后台分析：同一维度串行保持上下文一致，不同维度最多 4 个 worker 并行；Planner 在队列清空后汇总全局事实
 - 原始按钮语义锁定：AI 只能增加 discomfort、sustainability、conditions、exit signal 等第二层语义
 - 44 道固定 Adaptive 题，每题含维度、场景标签、变量、极端度和语义键元数据
 - Probe Planner 只产出意图，不产出题目文本；AI Question Generator 在 Phase 2 明确禁用
@@ -64,6 +69,12 @@ AI_BASE_URL=https://your-openai-compatible-host.example/v1
 AI_API_KEY=your-server-side-key
 AI_MODEL=your-model-name
 AI_REASONING_EFFORT=xhigh
+PRODUCT_AI_INTERPRETER_REASONING_EFFORT=medium
+PRODUCT_AI_INTERPRETER_TIMEOUT_MS=45000
+PRODUCT_AI_PLANNER_REASONING_EFFORT=xhigh
+PRODUCT_AI_PLANNER_TIMEOUT_MS=90000
+PRODUCT_AI_REPORT_REASONING_EFFORT=xhigh
+PRODUCT_AI_REPORT_TIMEOUT_MS=180000
 ```
 
 然后启动：
@@ -106,6 +117,12 @@ PRODUCT_AI_BASE_URL=https://your-sol-compatible-host.example/v1
 PRODUCT_AI_API_KEY=
 PRODUCT_AI_MODEL=gpt-5.6-sol
 PRODUCT_AI_REASONING_EFFORT=xhigh
+PRODUCT_AI_INTERPRETER_REASONING_EFFORT=medium
+PRODUCT_AI_INTERPRETER_TIMEOUT_MS=45000
+PRODUCT_AI_PLANNER_REASONING_EFFORT=xhigh
+PRODUCT_AI_PLANNER_TIMEOUT_MS=90000
+PRODUCT_AI_REPORT_REASONING_EFFORT=xhigh
+PRODUCT_AI_REPORT_TIMEOUT_MS=180000
 
 SIMULATOR_AI_BASE_URL=https://api.deepseek.com/v1
 SIMULATOR_AI_API_KEY=
@@ -171,6 +188,8 @@ lib/
   ai/
     contracts.ts                # Interpreter / Planner / Report Zod contracts
     config.ts                   # 服务端环境变量
+    dimension-analysis-coordinator.ts # 按维度有序、跨维度并发的后台队列
+    use-background-answer-analysis.ts # 交互页后台解释与刷新补跑
     normalization.ts            # usage 与 provider response 兼容归一
     prompts.ts                  # 三个 AI role 的约束提示
     provider.ts                 # AIProvider interface 与错误类型

@@ -13,6 +13,8 @@ import {
   shouldInterpretResponse,
 } from "../lib/ai/interpretation-policy";
 import { normalizeResponseContent, normalizeUsage } from "../lib/ai/normalization";
+import { DimensionAnalysisCoordinator } from "../lib/ai/dimension-analysis-coordinator";
+import { getServerAIRoleOptions } from "../lib/ai/server";
 import { MockProvider } from "../lib/ai/providers/mock-provider";
 import {
   selectAdaptiveQuestions,
@@ -20,6 +22,7 @@ import {
 } from "../lib/adaptive/flow";
 import {
   AcceptanceSemantic,
+  AITelemetryRole,
   AnswerChoice,
   BoundaryDimension,
   BoundaryPosition,
@@ -93,6 +96,76 @@ test("Phase 2 keeps 11 dimensions, Core-24, and a metadata-complete fixed bank",
   assert.ok(adaptiveQuestionBank.every((question) => question.core === false));
   assert.ok(adaptiveQuestionBank.every((question) => question.scenarioTags.length > 0));
   assert.ok(adaptiveQuestionBank.every((question) => question.variables.length > 0));
+});
+
+test("dimension analysis is serial within a dimension and parallel across dimensions", async () => {
+  const coordinator = new DimensionAnalysisCoordinator(2);
+  const events: string[] = [];
+  let active = 0;
+  let maxActive = 0;
+  let releaseAutonomy!: () => void;
+  let releasePrivacy!: () => void;
+  const autonomyGate = new Promise<void>((resolve) => {
+    releaseAutonomy = resolve;
+  });
+  const privacyGate = new Promise<void>((resolve) => {
+    releasePrivacy = resolve;
+  });
+  const task = (name: string, gate?: Promise<void>) => async () => {
+    events.push(`${name}:start`);
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    try {
+      await gate;
+    } finally {
+      active -= 1;
+      events.push(`${name}:end`);
+    }
+  };
+
+  void coordinator.enqueue(
+    BoundaryDimension.AUTONOMY_CONTROL,
+    task("autonomy-1", autonomyGate),
+  );
+  void coordinator.enqueue(
+    BoundaryDimension.AUTONOMY_CONTROL,
+    task("autonomy-2"),
+  );
+  void coordinator.enqueue(
+    BoundaryDimension.PRIVACY_PERSONAL_SPACE,
+    task("privacy-1", privacyGate),
+  );
+  void coordinator.enqueue(
+    BoundaryDimension.HONESTY_AUTHENTICITY,
+    task("honesty-1"),
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(active, 2);
+  assert.equal(maxActive, 2);
+  assert.ok(!events.includes("autonomy-2:start"));
+  assert.ok(!events.includes("honesty-1:start"));
+
+  releasePrivacy();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(events.includes("honesty-1:start"));
+  assert.ok(!events.includes("autonomy-2:start"));
+
+  releaseAutonomy();
+  await coordinator.drain();
+  assert.ok(events.indexOf("autonomy-1:end") < events.indexOf("autonomy-2:start"));
+  assert.equal(coordinator.pending, 0);
+});
+
+test("interactive AI uses a lighter interpreter and stronger aggregate roles", () => {
+  const options = getServerAIRoleOptions({});
+  assert.equal(
+    options[AITelemetryRole.ANSWER_INTERPRETER]?.reasoningEffort,
+    "medium",
+  );
+  assert.equal(options[AITelemetryRole.PROBE_PLANNER]?.reasoningEffort, "xhigh");
+  assert.equal(options[AITelemetryRole.REPORT_WRITER]?.reasoningEffort, "xhigh");
+  assert.equal(options[AITelemetryRole.ANSWER_INTERPRETER]?.timeoutMs, 45_000);
 });
 
 test("RawResponse history stays append-only when an answer is revised", () => {

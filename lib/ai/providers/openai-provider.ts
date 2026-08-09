@@ -93,7 +93,10 @@ export class OpenAIProvider implements AIProvider {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      roleOptions?.timeoutMs ?? this.config.timeoutMs,
+    );
 
     try {
       const body: Record<string, unknown> = {

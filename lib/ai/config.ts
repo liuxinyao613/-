@@ -4,6 +4,7 @@ export type AIRoleRequestOptions = {
   reasoningEffort?: string | null;
   thinking?: "enabled" | "disabled" | null;
   maxTokens?: number | null;
+  timeoutMs?: number | null;
 };
 
 export type AIProviderConfig = {
