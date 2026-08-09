@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import { Brand } from "@/app/components/brand";
 import { questionById } from "@/data/questions";
 import {
+  bufferedQuestionCount,
   fallbackProbePlan,
+  remainingQuestionSlots,
   selectAdaptiveQuestions,
+  shouldPrefetchAdaptive,
   shouldStopAdaptive,
 } from "@/lib/adaptive/flow";
 import { AIClientError, postAI } from "@/lib/ai/client";
@@ -124,6 +127,7 @@ export function AssessmentExperience() {
     getCurrent,
   } = useBoundarySession();
   const [processingLabel, setProcessingLabel] = useState<string | null>(null);
+  const [plannerInFlight, setPlannerInFlight] = useState(false);
   const flowInFlight = useRef(false);
   const advancingQuestion = useRef<string | null>(null);
   const {
@@ -146,10 +150,19 @@ export function AssessmentExperience() {
     async (baseSession: Session) => {
       if (flowInFlight.current) return;
       flowInFlight.current = true;
-      setProcessingLabel("正在汇总各维度分析，准备下一组情境…");
+      setPlannerInFlight(true);
       try {
         await drainBackgroundAnalysis();
         let current = getCurrent() ?? baseSession;
+        if (
+          current.currentIndex >= current.questionOrder.length &&
+          remainingQuestionSlots(current) === 0
+        ) {
+          setProcessingLabel("正在完成最后的汇总…");
+          complete();
+          router.push("/report");
+          return;
+        }
         const currentFacts = buildReportFacts(current);
         let plan;
         try {
@@ -167,43 +180,86 @@ export function AssessmentExperience() {
           plan = fallbackProbePlan(current, buildReportFacts(current));
         }
 
-        let selected = selectAdaptiveQuestions(current, plan.intents);
+        const availableSlots = remainingQuestionSlots(current);
+        let selected = selectAdaptiveQuestions(
+          current,
+          plan.intents,
+          Math.min(3, availableSlots),
+        );
         if (!selected.length && current.rawResponses.filter((item) => item.stageSnapshot === "ADAPTIVE").length < current.adaptiveConfig.minAdaptive) {
           const fallback = fallbackProbePlan(current, buildReportFacts(current));
-          selected = selectAdaptiveQuestions(current, fallback.intents);
+          selected = selectAdaptiveQuestions(
+            current,
+            fallback.intents,
+            Math.min(3, availableSlots),
+          );
           plan = { ...fallback, stop: false };
         }
 
-        if (shouldStopAdaptive(current, plan.stop, selected.length) || !selected.length) {
+        const hasBufferedQuestion = bufferedQuestionCount(current) > 0;
+        if (
+          !hasBufferedQuestion &&
+          (shouldStopAdaptive(current, plan.stop, selected.length) || !selected.length)
+        ) {
+          setProcessingLabel("正在完成最后的汇总…");
           complete();
           router.push("/report");
           return;
         }
-        appendProbes(plan.intents, selected.map((question) => question.id));
+        if (selected.length) {
+          appendProbes(plan.intents, selected.map((question) => question.id));
+        }
       } finally {
         flowInFlight.current = false;
-        setProcessingLabel(null);
+        setPlannerInFlight(false);
       }
     },
     [addTelemetry, appendProbes, complete, drainBackgroundAnalysis, getCurrent, router],
   );
 
   const continueFlow = useCallback(
-    async (baseSession: Session) => {
-      const current = getCurrent() ?? baseSession;
+    (baseSession: Session) => {
+      let current = getCurrent() ?? baseSession;
+      let seededBuffer = false;
       if (current.status === "COMPLETED") {
         router.push("/report");
         return;
       }
-      if (current.currentIndex < current.questionOrder.length) return;
-      await runPlanner(current);
+      if (
+        current.currentIndex >= current.questionOrder.length &&
+        remainingQuestionSlots(current) > 0
+      ) {
+        const fallback = fallbackProbePlan(current, buildReportFacts(current));
+        const selected = selectAdaptiveQuestions(
+          current,
+          fallback.intents,
+          Math.min(3, remainingQuestionSlots(current)),
+        );
+        if (selected.length) {
+          current = appendProbes(
+            fallback.intents,
+            selected.map((question) => question.id),
+          );
+          seededBuffer = true;
+        }
+      }
+      if (
+        seededBuffer ||
+        current.currentIndex >= current.questionOrder.length ||
+        shouldPrefetchAdaptive(current)
+      ) {
+        void runPlanner(current);
+      }
     },
-    [getCurrent, router, runPlanner],
+    [appendProbes, getCurrent, router, runPlanner],
   );
 
   useEffect(() => {
     if (!session || session.status === "COMPLETED") return;
-    if (session.currentIndex < session.questionOrder.length) return;
+    if (
+      session.currentIndex < session.questionOrder.length &&
+      !shouldPrefetchAdaptive(session)
+    ) return;
     const timer = window.setTimeout(() => void continueFlow(session), 0);
     return () => window.clearTimeout(timer);
   }, [continueFlow, session]);
@@ -245,7 +301,7 @@ export function AssessmentExperience() {
     try {
       const recorded = record(question, answer, note);
       enqueueBackgroundAnalysis(question, recorded.response);
-      void continueFlow(recorded.session);
+      continueFlow(recorded.session);
     } catch (error) {
       advancingQuestion.current = null;
       throw error;
@@ -260,7 +316,9 @@ export function AssessmentExperience() {
           <span aria-hidden="true" />
           {pendingAnalysisCount > 0
             ? `原始回答已保存 · AI 后台整理 ${pendingAnalysisCount} 条`
-            : "原始回答已保存到本机"}
+            : plannerInFlight
+              ? "原始回答已保存 · AI 后台规划下一组"
+              : "原始回答已保存到本机"}
         </div>
       </header>
 

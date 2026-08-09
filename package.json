@@ -15,6 +15,7 @@
     "test:domain": "tsx --test tests/domain.test.ts",
     "test:synthetic:unit": "tsx --test tests/synthetic.test.ts",
     "synthetic": "tsx scripts/run-synthetic.ts",
+    "replay:manual": "tsx scripts/replay-manual-session.ts",
     "synthetic:deepseek:conformance": "tsx scripts/deepseek-conformance.ts",
     "synthetic:compare": "tsx scripts/compare-synthetic-runs.ts",
     "db:generate": "drizzle-kit generate"

@@ -340,6 +340,7 @@ export const StructuredReportSchema = z.object({
   reportVersion: z.literal(2),
   generatedBy: z.enum(["AI", "FALLBACK"]),
   title: z.string().min(1),
+  boundaryLabel: z.string().min(2).max(18).default("有条件的协商者"),
   headline: z.string().min(1),
   snapshot: z.string().min(1),
   overview: z.string().min(1),

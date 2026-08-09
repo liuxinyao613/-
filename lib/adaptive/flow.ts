@@ -31,6 +31,31 @@ export function adaptiveAnsweredCount(session: Session): number {
   ).length;
 }
 
+export function bufferedQuestionCount(session: Session): number {
+  return Math.max(0, session.questionOrder.length - session.currentIndex);
+}
+
+export function remainingQuestionSlots(session: Session): number {
+  const configuredLimit = Math.min(
+    session.adaptiveConfig.targetTotal,
+    session.adaptiveConfig.hardLimit,
+  );
+  return Math.max(0, configuredLimit - session.questionOrder.length);
+}
+
+export function shouldPrefetchAdaptive(
+  session: Session,
+  threshold = 2,
+): boolean {
+  return (
+    session.status === "IN_PROGRESS" &&
+    session.phase === "ADAPTIVE" &&
+    session.currentIndex >= 24 &&
+    remainingQuestionSlots(session) > 0 &&
+    bufferedQuestionCount(session) <= threshold
+  );
+}
+
 export function fallbackProbePlan(session: Session, facts: ReportFacts) {
   const candidates = [...facts.dimensionFacts].sort((a, b) => {
     const score = (fact: (typeof facts.dimensionFacts)[number]) =>
@@ -116,6 +141,7 @@ export function selectAdaptiveQuestions(
   intents: ProbeIntent[],
   limit = 3,
 ): AdaptiveQuestionBankItem[] {
+  if (limit <= 0) return [];
   const reserved = new Set(session.questionOrder);
   const askedQuestions = session.questionOrder
     .map((id) => questionById.get(id))

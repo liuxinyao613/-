@@ -257,12 +257,19 @@ export function buildStructuredReport(
       : conditionalCount >= 3
         ? "从这些回答看，你的边界更像一组有前提的协议：条件、期限与修复方式会改变答案。"
         : "从这些回答看，你对若干关系底线已有清楚判断，同时仍为情境变化保留协商空间。";
+  const boundaryLabel =
+    facts.unresolvedDimensions.length >= 4
+      ? "为未知留白的探索者"
+      : conditionalCount >= 3
+        ? "有条件的协商者"
+        : "温和坚定的同行者";
   const latest = latestList(session);
 
   return StructuredReportSchema.parse({
     reportVersion: 2,
     generatedBy: "FALLBACK",
     title: "你的关系边界地图",
+    boundaryLabel,
     headline: snapshot,
     snapshot,
     overview: snapshot,

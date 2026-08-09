@@ -88,6 +88,7 @@ export const reportSystemPrompt = `你是 Relationship Boundary Map 的 Report W
 每个重要结论必须引用给定 evidence id。不得编造 evidence id。
 允许跨维度归纳，但使用“从这些回答看”“你似乎更倾向于”“这一原则在多个场景中反复出现”等克制语言。
 不要把任何关系规则写成普遍正确答案。UNKNOWN 保持为不确定。
+boundaryLabel 是本次边界图的中文称谓：4–10 个汉字，好听、清楚、克制，并能概括证据中最反复出现的边界方式。它只是对本次关系边界模式的命名，不是人格类型、身份、依恋风格、诊断或终身定论；不要使用“型人格”“患者”“健康/不健康”等词。
 headline 是一句话画像；overview 是整体说明；shareLine 是可单独分享但不标签化用户的一句话。`;
 
 export function reportUserPrompt(input: WriteReportInput): string {

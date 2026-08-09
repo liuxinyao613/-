@@ -25,7 +25,7 @@
 
 原始回答永远先写入 `localStorage`，模型没有修改应用状态的入口。模型失败时，RawResponse 和原文仍然保留。
 
-后台解释任务不会阻塞单题交互。刷新页面后，客户端会扫描最新 RawResponse，自动补跑需要解释但尚未产生 AI Evidence 的回答；旧版本 RawResponse 仍保持追加式历史。总汇总只发生在需要规划下一批 Adaptive 问题的批次边界，不会在每题之间打断用户。
+后台解释任务不会阻塞单题交互。刷新页面后，客户端会扫描最新 RawResponse，自动补跑需要解释但尚未产生 AI Evidence 的回答；旧版本 RawResponse 仍保持追加式历史。进入 Adaptive 后，程序会先从固定题库补入 3 道安全问题，总 Planner 等待各维度分析后在后台预取下一批；只有最终报告前才需要等待汇总。
 
 ## 已实现
 
@@ -33,7 +33,7 @@
 - 11 个核心维度与完整 Phase 2 Zod 数据模型
 - OpenAI-compatible 服务端 Provider；`OpenAIProvider`、`DeepSeekProvider`、`MockProvider` 共用同一接口
 - 按需 Answer Interpreter：有补充短句、`DEPENDS` 或 `UNKNOWN` 时调用；纯 `ACCEPT / REJECT` 且无短句时只建基础 Evidence
-- 按维度后台分析：同一维度串行保持上下文一致，不同维度最多 4 个 worker 并行；Planner 在队列清空后汇总全局事实
+- 按维度后台分析：同一维度串行保持上下文一致，不同维度最多 4 个 worker 并行；Planner 在队列清空后汇总全局事实，并通过持久化问题缓冲在后台预取
 - 原始按钮语义锁定：AI 只能增加 discomfort、sustainability、conditions、exit signal 等第二层语义
 - 44 道固定 Adaptive 题，每题含维度、场景标签、变量、极端度和语义键元数据
 - Probe Planner 只产出意图，不产出题目文本；AI Question Generator 在 Phase 2 明确禁用
@@ -71,7 +71,7 @@ AI_MODEL=your-model-name
 AI_REASONING_EFFORT=xhigh
 PRODUCT_AI_INTERPRETER_REASONING_EFFORT=medium
 PRODUCT_AI_INTERPRETER_TIMEOUT_MS=45000
-PRODUCT_AI_PLANNER_REASONING_EFFORT=xhigh
+PRODUCT_AI_PLANNER_REASONING_EFFORT=high
 PRODUCT_AI_PLANNER_TIMEOUT_MS=90000
 PRODUCT_AI_REPORT_REASONING_EFFORT=xhigh
 PRODUCT_AI_REPORT_TIMEOUT_MS=180000
@@ -100,6 +100,8 @@ npm run build
 npm test
 ```
 
+如需回放一次已由用户明确保存的可见报告答案，可把捕获文件放在 `test-results/manual/current-answer-replay.json`，然后运行 `npm run replay:manual`。该目录被 Git 忽略；脚本会用相同题目、按钮选择和补充短句重跑并发 Interpreter、总 Planner 与 Report Writer，结果只保存在本机。
+
 ## Synthetic Test Harness（开发/内部工具）
 
 Harness 通过独立的 AI User Simulator 回答真实 Core-24 与 Adaptive Question Bank，再让产品侧 Interpreter、Planner、Report Writer 跑完整闭环。Simulator 只看到当前题、四个选项、Persona 针对当前情境的生活化设定和最近 2 条回答摘要，不会看到 Boundary State、Evidence、期待的 Flip/Hidden Cost 或 Evaluator 标签。
@@ -119,7 +121,7 @@ PRODUCT_AI_MODEL=gpt-5.6-sol
 PRODUCT_AI_REASONING_EFFORT=xhigh
 PRODUCT_AI_INTERPRETER_REASONING_EFFORT=medium
 PRODUCT_AI_INTERPRETER_TIMEOUT_MS=45000
-PRODUCT_AI_PLANNER_REASONING_EFFORT=xhigh
+PRODUCT_AI_PLANNER_REASONING_EFFORT=high
 PRODUCT_AI_PLANNER_TIMEOUT_MS=90000
 PRODUCT_AI_REPORT_REASONING_EFFORT=xhigh
 PRODUCT_AI_REPORT_TIMEOUT_MS=180000

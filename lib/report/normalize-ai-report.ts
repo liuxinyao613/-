@@ -23,6 +23,7 @@ export function normalizeAIReport(
   return StructuredReportSchema.parse({
     ...fallback,
     generatedBy: "AI",
+    boundaryLabel: payload.boundaryLabel,
     headline: payload.headline,
     overview: payload.overview,
     snapshot: payload.overview,

@@ -6,6 +6,7 @@ import { allQuestions } from "../data/questions";
 import {
   AnswerInterpretationPayloadSchema,
   InterpretAnswerOutputSchema,
+  ReportWriterPayloadSchema,
 } from "../lib/ai/contracts";
 import {
   acceptanceForChoice,
@@ -17,7 +18,10 @@ import { DimensionAnalysisCoordinator } from "../lib/ai/dimension-analysis-coord
 import { getServerAIRoleOptions } from "../lib/ai/server";
 import { MockProvider } from "../lib/ai/providers/mock-provider";
 import {
+  bufferedQuestionCount,
+  remainingQuestionSlots,
   selectAdaptiveQuestions,
+  shouldPrefetchAdaptive,
   shouldStopAdaptive,
 } from "../lib/adaptive/flow";
 import {
@@ -31,12 +35,14 @@ import {
   ProbeType,
   RelationshipStateChange,
   SessionSchema,
+  StructuredReportSchema,
   SustainabilityLevel,
   type ProbeIntent,
   type Question,
   type Session,
 } from "../lib/domain/schemas";
 import { buildReportFacts, buildStructuredReport } from "../lib/report/build-report";
+import { normalizeAIReport } from "../lib/report/normalize-ai-report";
 import { sessionReducer } from "../lib/session/reducer";
 import {
   createSession,
@@ -163,7 +169,7 @@ test("interactive AI uses a lighter interpreter and stronger aggregate roles", (
     options[AITelemetryRole.ANSWER_INTERPRETER]?.reasoningEffort,
     "medium",
   );
-  assert.equal(options[AITelemetryRole.PROBE_PLANNER]?.reasoningEffort, "xhigh");
+  assert.equal(options[AITelemetryRole.PROBE_PLANNER]?.reasoningEffort, "high");
   assert.equal(options[AITelemetryRole.REPORT_WRITER]?.reasoningEffort, "xhigh");
   assert.equal(options[AITelemetryRole.ANSWER_INTERPRETER]?.timeoutMs, 45_000);
 });
@@ -385,6 +391,45 @@ test("adaptive selector honors intent dimensions, cooldown, and normal extremity
   );
 });
 
+test("adaptive prefetch exposes a question buffer and never reserves past target", () => {
+  let session = createSession(new Date("2026-01-01T00:00:00.000Z"));
+  for (const question of coreQuestions) {
+    session = recordAnswer(session, question, AnswerChoice.CAN_ACCEPT);
+  }
+  assert.equal(bufferedQuestionCount(session), 0);
+  assert.equal(remainingQuestionSlots(session), 14);
+  assert.equal(shouldPrefetchAdaptive(session), true);
+
+  const selected = selectAdaptiveQuestions(
+    session,
+    [
+      makeIntent(BoundaryDimension.AUTONOMY_CONTROL, "buffer-1"),
+      makeIntent(BoundaryDimension.PRIVACY_PERSONAL_SPACE, "buffer-2"),
+      makeIntent(BoundaryDimension.CONFLICT_DIGNITY, "buffer-3"),
+    ],
+    3,
+  );
+  session = sessionReducer(session, {
+    type: "APPEND_PROBES",
+    intents: [],
+    questionIds: selected.map((question) => question.id),
+    at: "2026-01-01T01:00:00.000Z",
+  });
+  assert.equal(bufferedQuestionCount(session), 3);
+  assert.equal(shouldPrefetchAdaptive(session), false);
+
+  session = recordAnswer(session, selected[0], AnswerChoice.CAN_ACCEPT);
+  assert.equal(bufferedQuestionCount(session), 2);
+  assert.equal(shouldPrefetchAdaptive(session), true);
+
+  const oneSlot = {
+    ...session,
+    adaptiveConfig: { ...session.adaptiveConfig, targetTotal: session.questionOrder.length + 1 },
+  };
+  assert.equal(remainingQuestionSlots(oneSlot), 1);
+  assert.equal(selectAdaptiveQuestions(oneSlot, [], 0).length, 0);
+});
+
 test("adaptive stopping requires enough probes unless target or hard limit is reached", () => {
   let session = createSession(new Date("2026-01-01T00:00:00.000Z"));
   for (const question of coreQuestions) {
@@ -480,6 +525,49 @@ test("a complete Core-24 plus adaptive run produces a validated fallback report"
   assert.equal(report.dimensionMap.length, 11);
   assert.equal(report.evidencePanels.length, 11);
   assert.ok(report.corePrinciples.length > 0);
+  assert.ok(report.boundaryLabel.length >= 2);
+  assert.doesNotMatch(report.boundaryLabel, /人格|诊断|健康|患者/);
+
+  const legacyReport = { ...report } as Record<string, unknown>;
+  delete legacyReport.boundaryLabel;
+  assert.equal(
+    StructuredReportSchema.parse(legacyReport).boundaryLabel,
+    "有条件的协商者",
+  );
+
+  const writerPayload = ReportWriterPayloadSchema.parse({
+    boundaryLabel: "清醒温柔的协商者",
+    headline: report.headline,
+    overview: report.overview,
+    corePrinciples: report.corePrinciples.slice(0, 1),
+    dimensions: report.dimensionMap
+      .filter((state) => state.evidenceIds.length > 0)
+      .map((state) => ({
+        dimension: state.dimension,
+        label: state.label,
+        summary: state.summary,
+        evidenceIds: state.evidenceIds,
+      })),
+    boundaryFlips: report.boundaryFlips.map((item) => ({
+      dimension: item.dimension,
+      trigger: item.trigger,
+      evidenceIds: item.evidenceIds,
+      confidence: item.confidence,
+    })),
+    mustHaves: report.mustHaves,
+    hiddenCosts: report.hiddenCosts.map((item) => ({
+      dimension: item.dimension,
+      statement: item.statement,
+      longTermRisk: item.longTermRisk,
+      evidenceIds: item.evidenceIds,
+      confidence: item.confidence,
+    })),
+    tensions: report.tensions,
+    uncertainties: report.unresolvedAreas,
+    shareLine: report.shareLine,
+  });
+  const normalized = normalizeAIReport(writerPayload, { session, facts });
+  assert.equal(normalized.boundaryLabel, "清醒温柔的协商者");
 });
 
 test("unsure remains unresolved instead of becoming a midpoint", () => {

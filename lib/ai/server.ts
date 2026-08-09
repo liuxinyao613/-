@@ -26,7 +26,7 @@ export function getServerAIRoleOptions(
     },
     [AITelemetryRole.PROBE_PLANNER]: {
       reasoningEffort:
-        environment.PRODUCT_AI_PLANNER_REASONING_EFFORT ?? sharedEffort,
+        environment.PRODUCT_AI_PLANNER_REASONING_EFFORT ?? "high",
       timeoutMs: positiveInteger(
         environment.PRODUCT_AI_PLANNER_TIMEOUT_MS,
         90_000,

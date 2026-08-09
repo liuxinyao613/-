@@ -50,6 +50,10 @@ function reportMarkdown(report: StructuredReport): string {
 
 ${report.headline}
 
+## 边界称谓
+
+${report.boundaryLabel}
+
 ## 一句话画像
 
 ${report.snapshot}

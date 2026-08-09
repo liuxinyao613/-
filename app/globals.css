@@ -761,6 +761,24 @@ button:disabled {
 .report-headline + .report-snapshot { margin-top: 0.8rem; }
 .report-fallback-note { background: #ebe5df; border-radius: 0.6rem; color: var(--muted); font-size: 0.68rem; margin: 1rem 0 0; padding: 0.7rem 1rem; }
 
+.boundary-label {
+  align-items: baseline;
+  color: var(--ink);
+  display: flex;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: clamp(1.25rem, 2.2vw, 1.8rem);
+  gap: 0.8rem;
+  margin: 0 0 1.25rem;
+}
+
+.boundary-label span {
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
 .completion-seal {
   align-items: center;
   border: 1px solid #b9afc1;

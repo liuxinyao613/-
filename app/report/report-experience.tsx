@@ -154,12 +154,13 @@ export function ReportExperience() {
       <section className="report-hero">
         <div>
           <p className="eyebrow">Phase 2 · {report.generatedBy === "AI" ? "AI Structured Report" : "Facts Fallback"}</p>
+          <p className="boundary-label"><span>你的边界称谓</span>{report.boundaryLabel}</p>
           <h1>{report.title}</h1>
           <p className="report-headline">{report.headline}</p>
           <p className="report-snapshot">{report.overview}</p>
         </div>
         <aside className="completion-seal" aria-label="报告覆盖情况">
-          <span>已完成</span><p>原始回答<br />完整保留</p><small>无总分</small>
+          <span>已完成</span><p>原始回答<br />完整保留</p>
         </aside>
       </section>
 
