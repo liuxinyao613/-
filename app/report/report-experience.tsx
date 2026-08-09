@@ -154,8 +154,8 @@ export function ReportExperience() {
       <section className="report-hero">
         <div>
           <p className="eyebrow">Phase 2 · {report.generatedBy === "AI" ? "AI Structured Report" : "Facts Fallback"}</p>
-          <p className="boundary-label"><span>你的边界称谓</span>{report.boundaryLabel}</p>
-          <h1>{report.title}</h1>
+          <p className="boundary-label-caption">你的边界称谓</p>
+          <h1>{report.boundaryLabel}</h1>
           <p className="report-headline">{report.headline}</p>
           <p className="report-snapshot">{report.overview}</p>
         </div>
